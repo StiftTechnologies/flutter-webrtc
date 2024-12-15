@@ -8,9 +8,6 @@
 #import "FlutterRPScreenRecorder.h"
 #endif
 
-#import "VideoProcessingAdapter.h"
-#import "LocalVideoTrack.h"
-
 #if TARGET_OS_OSX
 RTCDesktopMediaList* _screen = nil;
 RTCDesktopMediaList* _window = nil;
@@ -24,8 +21,7 @@ NSArray<RTCDesktopSource*>* _captureSources;
   RTCMediaStream* mediaStream = [self.peerConnectionFactory mediaStreamWithStreamId:mediaStreamId];
   RTCVideoSource* videoSource = [self.peerConnectionFactory videoSourceForScreenCast:YES];
   NSString* trackUUID = [[NSUUID UUID] UUIDString];
-  VideoProcessingAdapter *videoProcessingAdapter = [[VideoProcessingAdapter alloc] initWithRTCVideoSource:videoSource];
-  
+
 #if TARGET_OS_IPHONE
   BOOL useBroadcastExtension = false;
   id videoConstraints = constraints[@"video"];
@@ -112,10 +108,9 @@ NSArray<RTCDesktopSource*>* _captureSources;
   }
   RTCDesktopCapturer* desktopCapturer;
   RTCDesktopSource* source = nil;
-    
   if (useDefaultScreen) {
     desktopCapturer = [[RTCDesktopCapturer alloc] initWithDefaultScreen:self
-                                                        captureDelegate:videoProcessingAdapter];
+                                                        captureDelegate:videoSource];
   } else {
     source = [self getSourceById:sourceId];
     if (source == nil) {
@@ -124,7 +119,7 @@ NSArray<RTCDesktopSource*>* _captureSources;
     }
     desktopCapturer = [[RTCDesktopCapturer alloc] initWithSource:source
                                                         delegate:self
-                                                 captureDelegate:videoProcessingAdapter];
+                                                 captureDelegate:videoSource];
   }
   [desktopCapturer startCaptureWithFPS:fps];
   NSLog(@"start desktop capture: sourceId: %@, type: %@, fps: %lu", sourceId,
@@ -137,14 +132,12 @@ NSArray<RTCDesktopSource*>* _captureSources;
     handler();
   };
 #endif
-    
+
   RTCVideoTrack* videoTrack = [self.peerConnectionFactory videoTrackWithSource:videoSource
                                                                        trackId:trackUUID];
   [mediaStream addVideoTrack:videoTrack];
 
-  LocalVideoTrack *localVideoTrack = [[LocalVideoTrack alloc] initWithTrack:videoTrack videoProcessing:videoProcessingAdapter];
-    
-  [self.localTracks setObject:localVideoTrack forKey:trackUUID];
+  [self.localTracks setObject:videoTrack forKey:trackUUID];
 
   NSMutableArray* audioTracks = [NSMutableArray array];
   NSMutableArray* videoTracks = [NSMutableArray array];

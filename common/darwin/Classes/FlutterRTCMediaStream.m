@@ -3,9 +3,6 @@
 #import "FlutterRTCFrameCapturer.h"
 #import "FlutterRTCMediaStream.h"
 #import "FlutterRTCPeerConnection.h"
-#import "VideoProcessingAdapter.h"
-#import "LocalVideoTrack.h"
-#import "LocalAudioTrack.h"
 
 @implementation RTCMediaStreamTrack (Flutter)
 
@@ -55,39 +52,6 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
       [[RTCMediaConstraints alloc] initWithMandatoryConstraints:[self defaultVideoConstraints]
                                             optionalConstraints:nil];
   return constraints;
-}
-
-
-- (NSArray<AVCaptureDevice*> *) captureDevices {
-    NSArray<AVCaptureDeviceType> *deviceTypes = @[
-#if TARGET_OS_IPHONE
-        AVCaptureDeviceTypeBuiltInTripleCamera,
-        AVCaptureDeviceTypeBuiltInDualCamera,
-        AVCaptureDeviceTypeBuiltInDualWideCamera,
-        AVCaptureDeviceTypeBuiltInWideAngleCamera,
-        AVCaptureDeviceTypeBuiltInTelephotoCamera,
-        AVCaptureDeviceTypeBuiltInUltraWideCamera,
-#else
-        AVCaptureDeviceTypeBuiltInWideAngleCamera,
-#endif
-    ];
-
-#if !defined(TARGET_OS_IPHONE)
-    if (@available(macOS 13.0, *)) {
-        deviceTypes = [deviceTypes arrayByAddingObject:AVCaptureDeviceTypeDeskViewCamera];
-    }
-#endif
-
-    if (@available(iOS 17.0, macOS 14.0, tvOS 17.0, *)) {
-        deviceTypes = [deviceTypes arrayByAddingObjectsFromArray: @[
-            AVCaptureDeviceTypeContinuityCamera,
-            AVCaptureDeviceTypeExternal,
-        ]];
-    }
-
-    return [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes
-                                                                     mediaType:AVMediaTypeVideo
-                                                                      position:AVCaptureDevicePositionUnspecified].devices;
 }
 
 /**
@@ -146,7 +110,6 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
 
   NSString* trackId = [[NSUUID UUID] UUIDString];
   RTCAudioTrack* audioTrack = [self.peerConnectionFactory audioTrackWithTrackId:trackId];
-  LocalAudioTrack *localAudioTrack = [[LocalAudioTrack alloc] initWithTrack:audioTrack];
 
   audioTrack.settings = @{
     @"deviceId" : audioDeviceId,
@@ -160,7 +123,7 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
 
   [mediaStream addAudioTrack:audioTrack];
 
-  [self.localTracks setObject:localAudioTrack forKey:trackId];
+  [self.localTracks setObject:audioTrack forKey:trackId];
 
   [self ensureAudioSession];
 
@@ -346,7 +309,7 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
   AVCaptureDevice* videoDevice;
   NSString* videoDeviceId = nil;
   NSString* facingMode = nil;
-  NSArray<AVCaptureDevice*>* captureDevices = [self captureDevices];
+  NSArray<AVCaptureDevice*>* captureDevices = [RTCCameraVideoCapturer captureDevices];
 
   if ([videoConstraints isKindOfClass:[NSDictionary class]]) {
     // constraints.video.deviceId
@@ -472,10 +435,7 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
       [self.videoCapturer stopCapture];
     }
 #endif
-      
-    VideoProcessingAdapter *videoProcessingAdapter = [[VideoProcessingAdapter alloc] initWithRTCVideoSource:videoSource];
-    self.videoCapturer = [[RTCCameraVideoCapturer alloc] initWithDelegate:videoProcessingAdapter];
-      
+    self.videoCapturer = [[RTCCameraVideoCapturer alloc] initWithDelegate:videoSource];
     AVCaptureDeviceFormat* selectedFormat = [self selectFormatForDevice:videoDevice
                                                             targetWidth:targetWidth
                                                            targetHeight:targetHeight];
@@ -512,9 +472,8 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
 
     NSString* trackUUID = [[NSUUID UUID] UUIDString];
     RTCVideoTrack* videoTrack = [self.peerConnectionFactory videoTrackWithSource:videoSource
-                                                                        trackId:trackUUID];
-    LocalVideoTrack *localVideoTrack = [[LocalVideoTrack alloc] initWithTrack:videoTrack videoProcessing:videoProcessingAdapter];
-      
+                                                                         trackId:trackUUID];
+
     __weak RTCCameraVideoCapturer* capturer = self.videoCapturer;
     self.videoCapturerStopHandlers[videoTrack.trackId] = ^(CompletionHandler handler) {
       NSLog(@"Stop video capturer, trackID %@", videoTrack.trackId);
@@ -542,7 +501,7 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
 
     [mediaStream addVideoTrack:videoTrack];
 
-    [self.localTracks setObject:localVideoTrack forKey:trackUUID];
+    [self.localTracks setObject:videoTrack forKey:trackUUID];
 
     successCallback(mediaStream);
   } else {
@@ -592,7 +551,8 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
   // because audio capture is done using AVAudioSession which does not use
   // AVCaptureDevice there. Anyway, Simulator will not (visually) request access
   // for audio.
-  if (mediaType == AVMediaTypeVideo && [self captureDevices].count == 0) {
+  if (mediaType == AVMediaTypeVideo &&
+      [AVCaptureDevice devicesWithMediaType:mediaType].count == 0) {
     // Since successCallback and errorCallback are asynchronously invoked
     // elsewhere, make sure that the invocation here is consistent.
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -670,7 +630,7 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream* mediaStream);
 
 - (void)getSources:(FlutterResult)result {
   NSMutableArray* sources = [NSMutableArray array];
-  NSArray* videoDevices =  [self captureDevices];
+  NSArray* videoDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
   for (AVCaptureDevice* device in videoDevices) {
     [sources addObject:@{
       @"facing" : device.positionString,
