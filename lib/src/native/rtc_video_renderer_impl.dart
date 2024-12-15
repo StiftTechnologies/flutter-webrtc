@@ -176,4 +176,13 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
     }
     return true;
   }
+
+  Completer firstFrameRenderedCompleter() {
+    final completer = Completer();
+    onFirstFrameRendered = () {
+      completer.complete();
+    };
+
+    return completer;
+  }
 }
